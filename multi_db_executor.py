@@ -30,8 +30,8 @@ def get_relevant_tables(query: str, top_k: int = 5):
     matches = index.query(vector=query_vec, top_k=top_k, include_metadata=True)
     return [match for match in matches["matches"]]
 
-relevant_tables = get_relevant_tables("show all tables", top_k=5)
-print(relevant_tables)
+# relevant_tables = get_relevant_tables("show all tables", top_k=5)
+# print(relevant_tables)
 
 
 def get_executor(db_name, relevant_tables):
@@ -51,29 +51,54 @@ def get_executor(db_name, relevant_tables):
 
     db = FilteredSQLDatabase.from_uri(DB_URLS[db_name])
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
-    return create_sql_agent(llm=llm, toolkit=toolkit, verbose=False, handle_parsing_errors=True)
+    return create_sql_agent(
+        llm=llm, 
+        toolkit=toolkit, 
+        verbose=False, 
+        handle_parsing_errors=True,
+        agent_executor_kwargs={"handle_parsing_errors": True}
+    )
 
 
-def run_multi_db_query(query):
+def run_multi_db_query(query,relevant_tables):
     responses = []
-    relevant = get_relevant_tables(query, top_k=5)
+    # relevant = get_relevant_tables(query, top_k=5)
+    
+    print(f"Found {len(relevant_tables)} relevant tables:")
+    for match in relevant_tables:
+        print(f"  - {match['metadata']['db']}.{match['metadata']['table']} (score: {match['score']:.3f})")
+    
     for db_name in DB_URLS:
-        if not relevant:
+        # Check if this database has any relevant tables
+        db_relevant_tables = [
+            match for match in relevant_tables 
+            if match['metadata']['db'] == db_name
+        ]
+        
+        if not db_relevant_tables:
+            print(f"Skipping {db_name}: no relevant tables found")
             continue
-        executor = get_executor(db_name, relevant)
+            
+        print(f"Processing {db_name} with {len(db_relevant_tables)} relevant tables...")
+        
         try:
+            executor = get_executor(db_name, relevant_tables    )
             result = executor.invoke({"input": query})
             # Extract the output from the result dictionary
             output = result.get("output", result)
             responses.append((db_name, output))
+            print(f"✓ {db_name}: {output}")
         except Exception as e:
-            responses.append((db_name, f"Error: {str(e)}"))
+            error_msg = f"Error: {str(e)}"
+            responses.append((db_name, error_msg))
+            print(f"✗ {db_name}: {error_msg}")
+    
     return responses
 
-if __name__ == "__main__":
-    query = "what is the price of the product with id 1"
-    responses = run_multi_db_query(query)
-    print(responses)
+# if __name__ == "__main__":
+#     query = "what is the price of the product with id 1"
+#     responses = run_multi_db_query(query)
+#     print(responses)
 
 
 
