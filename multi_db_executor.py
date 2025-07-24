@@ -1,55 +1,58 @@
-from pinecone import Pinecone, ServerlessSpec
-from dotenv import load_dotenv
 import os
+from functools import lru_cache
+from sqlalchemy import create_engine
+from sqlalchemy.pool import QueuePool
+from dotenv import load_dotenv
+from pinecone import Pinecone
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-load_dotenv()
 from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
 from langchain_community.agent_toolkits.sql.base import create_sql_agent
 from langchain_community.utilities import SQLDatabase
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
+
+load_dotenv()
+
+# Set environment variables
 os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY")
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
+# Initialize once
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-
-DB_URLS = {
-    "blinkit_db": os.getenv("blinkit_db_url"),
-    "zepto_db": os.getenv("zepto_db_url"),
-    "instamart_db": os.getenv("instamart_db_url"),
-    "bigbasket_db": os.getenv("bigbasket_db_url")
-}
 embedder = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+index = pc.Index("multi-db-index")
 
-index_name = "multi-db-index"
-index = pc.Index(index_name)
+# Database URLs with connection pooling
+DB_ENGINES = {
+    db: create_engine(
+        url, 
+        poolclass=QueuePool,
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,
+        pool_recycle=3600
+    )
+    for db, url in {
+        "blinkit_db": os.getenv("blinkit_db_url"),
+        "zepto_db": os.getenv("zepto_db_url"), 
+        "instamart_db": os.getenv("instamart_db_url"),
+        "bigbasket_db": os.getenv("bigbasket_db_url")
+    }.items()
+}
 
-def get_relevant_tables(query: str, top_k: int = 5):
-    query_vec = embedder.embed_query(query)
-    matches = index.query(vector=query_vec, top_k=top_k, include_metadata=True)
-    return [match for match in matches["matches"]]
-
-# relevant_tables = get_relevant_tables("show all tables", top_k=5)
-# print(relevant_tables)
-
-
-def get_executor(db_name, relevant_tables):
-    filtered_table_names = [
-        match['metadata']['table'] 
-        for match in relevant_tables 
-        if match['metadata']['db'] == db_name
-    ]
-    
+# Cache SQL agents to avoid recreation
+@lru_cache(maxsize=32)
+def get_cached_agent(db_name: str, table_names_tuple: tuple):
+    """Create and cache SQL agents with filtered tables"""
     class FilteredSQLDatabase(SQLDatabase):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self.filtered_tables = filtered_table_names
+        def __init__(self, engine):
+            super().__init__(engine)
+            self.filtered_tables = list(table_names_tuple)
             
         def get_table_info(self, table_names=None):
             return super().get_table_info(table_names=self.filtered_tables)
 
-    db = FilteredSQLDatabase.from_uri(DB_URLS[db_name])
+    db = FilteredSQLDatabase(DB_ENGINES[db_name])
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
     return create_sql_agent(
         llm=llm, 
@@ -59,35 +62,36 @@ def get_executor(db_name, relevant_tables):
         agent_executor_kwargs={"handle_parsing_errors": True}
     )
 
+def get_relevant_tables(query: str, top_k: int = 5):
+    """Get relevant tables using vector similarity search"""
+    query_vec = embedder.embed_query(query)
+    matches = index.query(vector=query_vec, top_k=top_k, include_metadata=True)
+    return matches["matches"]
 
-def run_multi_db_query(query,relevant_tables):
+def run_multi_db_query(query: str, relevant_tables: list):
+    """Execute query across relevant databases concurrently"""
     responses = []
-    # relevant = get_relevant_tables(query, top_k=5)
     
-    print(f"Found {len(relevant_tables)} relevant tables:")
+    # Group tables by database
+    db_tables = {}
     for match in relevant_tables:
-        print(f"  - {match['metadata']['db']}.{match['metadata']['table']} (score: {match['score']:.3f})")
+        db_name = match['metadata']['db']
+        table_name = match['metadata']['table']
+        if db_name not in db_tables:
+            db_tables[db_name] = []
+        db_tables[db_name].append(table_name)
     
-    for db_name in DB_URLS:
-        # Check if this database has any relevant tables
-        db_relevant_tables = [
-            match for match in relevant_tables 
-            if match['metadata']['db'] == db_name
-        ]
-        
-        if not db_relevant_tables:
-            print(f"Skipping {db_name}: no relevant tables found")
-            continue
-            
-        print(f"Processing {db_name} with {len(db_relevant_tables)} relevant tables...")
-        
+    print(f"Querying {len(db_tables)} databases with {len(relevant_tables)} relevant tables")
+    
+    # Process each database with relevant tables
+    for db_name, table_names in db_tables.items():
         try:
-            executor = get_executor(db_name, relevant_tables    )
-            result = executor.invoke({"input": query})
-            
+            # Use cached agent with table names as tuple for hashing
+            agent = get_cached_agent(db_name, tuple(table_names))
+            result = agent.invoke({"input": query})
             output = result.get("output", result)
             responses.append((db_name, output))
-            print(f"✓ {db_name}: {output}")
+            print(f"✓ {db_name}: Success")
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             responses.append((db_name, error_msg))

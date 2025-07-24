@@ -5,76 +5,62 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-def analyze_response_with_groq(user_query, multi_db_response):
-    """
-    Analyze the multi-database response using Groq API to provide insights and summary
-    """
+def analyze_with_groq(query: str, responses: list) -> str:
+    """Analyze multi-DB responses using Groq"""
     try:
-        response_text = f"User Query: {user_query}\n\nDatabase Responses:\n"
-        for db_name, output in multi_db_response:
+        response_text = f"Query: {query}\n\nResults:\n"
+        for db_name, output in responses:
             response_text += f"\n--- {db_name.upper()} ---\n{output}\n"
 
-        analysis_prompt = f"""
-        You are an expert data analyst for quick commerce platforms. 
+        prompt = f"""
+        Analyze this quick commerce data query: "{query}"
         
-        A user asked: "{user_query}"
-        
-        Here are the responses from multiple quick commerce databases:
+        Database Results:
         {response_text}
         
-        Please provide:
-        1. A clear, concise summary of the findings
-        2. Key insights and comparisons across platforms
-        3. Actionable recommendations if applicable
-        4. Highlight the most relevant information for the user's query
+        Provide:
+        1. Clear summary of findings
+        2. Key insights and comparisons 
+        3. Actionable recommendations
+        4. Most relevant information
         
-        Make your response user-friendly and focus on the most important insights.
+        Keep it concise and user-friendly.
+        The output should be in markdown format within 3 lines.
         """
         
-        chat_completion = groq_client.chat.completions.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": analysis_prompt
-                }
-            ],
+        completion = groq_client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
             model="llama-3.1-8b-instant",
             temperature=0.1
         )
-        
-        return chat_completion.choices[0].message.content
+        return completion.choices[0].message.content
         
     except Exception as e:
-        return f"Analysis failed: {str(e)}\n\nRaw Results:\n{multi_db_response}"
+        return f"Analysis failed: {e}\n\nRaw Results:\n{responses}"
 
+# Streamlit UI
 st.set_page_config(page_title="Quick Commerce SQL Agent", page_icon="🛒")
-
 st.title("🛒 Quick Commerce SQL Agent")
-user_query = st.text_input("Ask a natural language query (e.g. Cheapest onions in Blinkit):")
 
-if user_query:
-    with st.spinner("🔍 Finding relevant tables..."):
-        tables = get_relevant_tables(user_query)
-        st.write("📦 Relevant Tables Used:", tables)
+query = st.text_input("Ask about products across platforms:", 
+                     placeholder="e.g., Cheapest onions available")
 
-        with st.spinner("🧠 Thinking..."):
-            try:
-                raw_response = run_multi_db_query(user_query, tables)
-                
-                with st.spinner("🔍 Analyzing results..."):
-                    analyzed_response = analyze_response_with_groq(user_query, raw_response)
-                
-                st.success("✅ Analysis:")
-                st.write(analyzed_response)
-                
-                # Show raw results in an expander for reference
-                with st.expander("📊 View Raw Database Results"):
-                    for db_name, output in raw_response:
-                        st.subheader(f"{db_name.title()}")
-                        st.write(output)
-                        
-            except Exception as e:
-                st.error(f"❌ Error: {e}")
+if query:
+    with st.spinner("🔍 Finding relevant data..."):
+        tables = get_relevant_tables(query)
+        st.info(f"📊 Using {len(tables)} relevant tables")
+        st.write(tables)
+        
+        raw_responses = run_multi_db_query(query, tables)
+        analysis = analyze_with_groq(query, raw_responses)
+        
+        st.success("✅ Analysis Complete")
+        st.write(analysis)
+        
+        # Raw results in expander
+        with st.expander("🔍 View Raw Database Results"):
+            for db_name, output in raw_responses:
+                st.subheader(f"{db_name.replace('_', ' ').title()}")
+                st.text(output)

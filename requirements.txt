@@ -1,24 +1,21 @@
-psycopg2 
-faker
+# Core dependencies
 streamlit
-langchain
+python-dotenv
 sqlalchemy
 psycopg2-binary
+
+# AI/ML dependencies  
+langchain
+langchain-community
+langchain-openai
+langchain-google-genai
 google-generativeai
 pinecone
-tiktoken
-
-langchain-community
-google-generativeai
-langchain-openai
-
-python-dotenv
-google-generativeai
-langchain-community
-langchain-google-genai
-psycopg2-binary
-python-dotenv
-rich
-sqlalchemy
-streamlit
 groq
+
+# Data generation
+faker
+
+# Utilities
+tiktoken
+rich
