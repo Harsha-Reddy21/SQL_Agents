@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Initialize Groq client
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 def analyze_response_with_groq(user_query, multi_db_response):
@@ -14,13 +13,10 @@ def analyze_response_with_groq(user_query, multi_db_response):
     Analyze the multi-database response using Groq API to provide insights and summary
     """
     try:
-        # Format the response data for analysis
         response_text = f"User Query: {user_query}\n\nDatabase Responses:\n"
-        
         for db_name, output in multi_db_response:
             response_text += f"\n--- {db_name.upper()} ---\n{output}\n"
-        
-        # Create analysis prompt
+
         analysis_prompt = f"""
         You are an expert data analyst for quick commerce platforms. 
         
@@ -38,7 +34,6 @@ def analyze_response_with_groq(user_query, multi_db_response):
         Make your response user-friendly and focus on the most important insights.
         """
         
-        # Call Groq API
         chat_completion = groq_client.chat.completions.create(
             messages=[
                 {

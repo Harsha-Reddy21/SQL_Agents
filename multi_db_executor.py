@@ -54,7 +54,7 @@ def get_executor(db_name, relevant_tables):
     return create_sql_agent(
         llm=llm, 
         toolkit=toolkit, 
-        verbose=False, 
+        verbose=True, 
         handle_parsing_errors=True,
         agent_executor_kwargs={"handle_parsing_errors": True}
     )
