@@ -10,6 +10,7 @@ tiktoken
 
 langchain-community
 google-generativeai
+langchain-openai
 
 python-dotenv
 google-generativeai

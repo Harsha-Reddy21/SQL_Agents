@@ -7,9 +7,11 @@ from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
 from langchain_community.agent_toolkits.sql.base import create_sql_agent
 from langchain_community.utilities import SQLDatabase
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY")
+os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0)
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 
 DB_URLS = {
@@ -33,7 +35,6 @@ print(relevant_tables)
 
 
 def get_executor(db_name, relevant_tables):
-    # Extract table names for the specific database
     filtered_table_names = [
         match['metadata']['table'] 
         for match in relevant_tables 
@@ -50,7 +51,7 @@ def get_executor(db_name, relevant_tables):
 
     db = FilteredSQLDatabase.from_uri(DB_URLS[db_name])
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
-    return create_sql_agent(llm=llm, toolkit=toolkit, verbose=False)
+    return create_sql_agent(llm=llm, toolkit=toolkit, verbose=False, handle_parsing_errors=True)
 
 
 def run_multi_db_query(query):
@@ -61,14 +62,16 @@ def run_multi_db_query(query):
             continue
         executor = get_executor(db_name, relevant)
         try:
-            result = executor.run(query)
-            responses.append((db_name, result))
+            result = executor.invoke({"input": query})
+            # Extract the output from the result dictionary
+            output = result.get("output", result)
+            responses.append((db_name, output))
         except Exception as e:
             responses.append((db_name, f"Error: {str(e)}"))
     return responses
 
 if __name__ == "__main__":
-    query = "show all tables"
+    query = "what is the price of the product with id 1"
     responses = run_multi_db_query(query)
     print(responses)
 
