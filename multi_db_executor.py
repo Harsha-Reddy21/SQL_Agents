@@ -84,7 +84,7 @@ def run_multi_db_query(query,relevant_tables):
         try:
             executor = get_executor(db_name, relevant_tables    )
             result = executor.invoke({"input": query})
-            # Extract the output from the result dictionary
+            
             output = result.get("output", result)
             responses.append((db_name, output))
             print(f"✓ {db_name}: {output}")

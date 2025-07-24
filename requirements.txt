@@ -21,3 +21,4 @@ python-dotenv
 rich
 sqlalchemy
 streamlit
+groq
